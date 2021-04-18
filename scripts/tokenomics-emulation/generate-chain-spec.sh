@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 docker-compose down -t 0
-rm -rf spec-data
+rm -rf chain-data accounts spec-data
 
 docker-compose up create_chain_spec
 docker-compose build generate_accounts
