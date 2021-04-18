@@ -57,6 +57,8 @@ services:
     volumes:
       - ./spec-data:/cereio/spec-data
       - ./chain-data:/data
+    env_file:
+      - ./configs/.env.testnet
     command: bash -c "/usr/local/bin/cere --prometheus-external --prometheus-port 9615 -l${LOG_LEVEL} --name ${NODE_NAME} --chain /cereio/spec-data/customSpecRaw.json --telemetry-url 'wss://telemetry.polkadot.io/submit/ 0' --validator --ws-port 9944 --rpc-methods=Unsafe --ws-external --unsafe-ws-external --rpc-cors all --rpc-external"
   add_validation_node_custom:
     container_name: add_validation_node_custom
@@ -71,6 +73,8 @@ services:
       - "9933:9933"
       - "30333:30333"
       - "9615:9615"
+    env_file:
+      - ./configs/.env.testnet
     volumes:
       - ./spec-data:/cereio/spec-data
       - ./chain-data:/data
