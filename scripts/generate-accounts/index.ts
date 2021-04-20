@@ -230,8 +230,8 @@ class Keyfiles {
     node_1_audi: "validator-2-controller-sr",
   };
   public async generateKeyfiles() {
-    if (!fs.existsSync("/keys")) {
-      fs.mkdirSync("/keys");
+    if (!fs.existsSync("keys")) {
+      fs.mkdirSync("keys");
     }
 
     for (const [key, value] of Object.entries(this.mapping)) {
@@ -257,7 +257,7 @@ class Keyfiles {
     };
 
     const stringContent = JSON.stringify(content);
-    fs.writeFileSync(`/keys/${filename}.json`, stringContent);
+    fs.writeFileSync(`keys/${filename}.json`, stringContent);
   }
 }
 
