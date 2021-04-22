@@ -9,13 +9,85 @@ import axios from 'axios';
 
 const MNEMONIC_WORDS_COUNT = 12;
 
+// https://stackoverflow.com/questions/10011011/using-node-js-how-do-i-read-a-json-file-into-server-memory
+var fs = require('fs');
+// var types = JSON.parse(fs.readFileSync('types.json', 'utf8'));
+const types = {
+  "Approval": {
+    "amount": "Balance",
+    "deposit": "DepositBalance"
+  },
+  "BabeEpochConfiguration": {
+    "c": "(u64, u64)",
+    "allowed_slots": "AllowedSlots"
+  },
+  "ApprovalKey": {
+    "owner": "AccountId",
+    "delegate": "AccountId"
+  },
+  "DestroyWitness": {
+    "accounts": "Compact<u32>",
+    "sufficients": "Compact<u32>",
+    "approvals": "Compact<u32>"
+  },
+  "Properties": "u8",
+  "NFTMetadata": "Vec<u8>",
+  "BlockNumber": "u32",
+  "BlockNumberOf": "BlockNumber",
+  "OrderData": {
+    "currencyId": "Compact<CurrencyIdOf>",
+    "price": "Compact<Balance>",
+    "deposit": "Compact<Balance>",
+    "deadline": "Compact<BlockNumberOf>",
+    "categoryId": "Compact<CategoryIdOf>"
+  },
+  "CategoryId": "u32",
+  "CategoryIdOf": "CategoryId",
+  "CategoryData": {
+    "metadata": "NFTMetadata",
+    "nftCount": "Compact<Balance>"
+  },
+  "CurrencyId": "u32",
+  "CurrencyIdOf": "CurrencyId",
+  "Amount": "i128",
+  "AmountOf": "Amount",
+  "ClassId": "u32",
+  "ClassIdOf": "ClassId",
+  "ClassInfoOf": {
+    "metadata": "NFTMetadata",
+    "totalIssuance": "TokenId",
+    "owner": "AccountId",
+    "data": "ClassData"
+  },
+  "ClassData": {
+    "deposit": "Compact<Balance>",
+    "properties": "Properties",
+    "name": "Vec<u8>",
+    "description": "Vec<u8>",
+    "createBlock": "Compact<BlockNumberOf>"
+  },
+  "TokenId": "u64",
+  "TokenIdOf": "TokenId",
+  "TokenInfoOf": {
+    "metadata": "NFTMetadata",
+    "owner": "AccountId",
+    "data": "TokenData"
+  },
+  "TokenData": {
+    "deposit": "Compact<Balance>",
+    "createBlock": "Compact<BlockNumberOf>"
+  }
+}
+
 dotenv.config();
 class Validator {
   private api: ApiPromise;
   private keyRingType: KeypairType;
+  private rootAccount: KeyringPair;
   private stashAccount: KeyringPair;
   private controllerAccount: KeyringPair;
   private sessionKey;
+  private rootBalance: number;
   private stashBalance: number;
   private controllerBalance: number;
 
@@ -26,11 +98,14 @@ class Validator {
     const provider = process.env.PROVIDER;
     console.log(`Connecting to blockchain: ${provider}`);
     const wsProvider = new WsProvider(provider);
+    this.api = await ApiPromise.create({ provider: wsProvider, types: types });
+    /*
     this.api = await ApiPromise.create({ provider: wsProvider, types: {
         ChainId: 'u8',
         ResourceId: '[u8; 32]',
         TokenId: 'U256'
       }});
+    */
     await this.api.isReady;
     const chain = await this.api.rpc.system.chain();
     console.log(`Connected to: ${chain}\n`);
@@ -80,10 +155,17 @@ class Validator {
   public async loadAccounts() {
     console.log(`Loading your accounts`);
     const keyring = new Keyring({ type: "sr25519" });
+    this.rootAccount = keyring.addFromMnemonic(process.env.ROOT_ACCOUNT_MNEMONIC);
     this.stashAccount = keyring.addFromMnemonic(process.env.STASH_ACCOUNT_MNEMONIC);
     this.controllerAccount = keyring.addFromMnemonic(process.env.CONTROLLER_ACCOUNT_MNEMONIC);
+    await this.requestEndowment(this.stashAccount);
+    await this.requestEndowment(this.controllerAccount);
+    this.rootBalance = await this.getBalance(this.rootAccount)
     this.stashBalance = await this.getBalance(this.stashAccount)
     this.controllerBalance = await this.getBalance(this.controllerAccount)
+    console.log(
+      `Your Root Account is ${this.rootAccount.address} and balance is ${this.rootBalance}`
+    );
     console.log(
       `Your Stash Account is ${this.stashAccount.address} and balance is ${this.stashBalance}`
     );
@@ -106,12 +188,12 @@ class Validator {
    * @param bondValue The amount to be stashed
    * @param payee The rewards destination account
    */
-  public addValidator() {
+  public async addValidator() {
     console.log(`\nAdding validator`);
-    const bondValue = BigInt(process.env.BOND_VALUE);
+    const bondValue = BigInt(Number(process.env.BOND_VALUE));
     console.log(`Bond value is ${bondValue}`);
     if (this.stashBalance <= Number(bondValue)) {
-      throw new Error("Bond value needs to be lesser than balance.");
+      throw new Error(`Bond value needs to be lesser than balance. (Bond ${bondValue} should be less than stash balance ${this.stashBalance})`);
     }
 
     const transaction = this.api.tx.staking.bond(
@@ -200,6 +282,38 @@ class Validator {
     console.log('=====================================================');
 
     return keyring.addPair(pair);
+  }
+
+  private async requestEndowment(account: KeyringPair) {
+    const oldBalance = await this.getBalance(account);
+    const transfer = this.api.tx.balances.transfer(account.address, 1000000000000000);
+    const hash = await transfer.signAndSend(this.rootAccount, {nonce: -1});
+    // const unsub = await transfer.signAndSend(this.rootAccount, {nonce: -1});
+    while (true) {
+      let newBalance = await this.getBalance(account);
+      if (newBalance > oldBalance) {
+        break;
+      }
+      await this.sleep(1000);
+    }
+    console.log('Endowment sent with hash', hash.toHex());
+    /*
+    const unsub = await this.api.tx.balances.transfer(account.address, 1000000000000000).signAndSend(this.rootAccount, ({events = [], status})=>{
+      console.log(`Current status is ${status.type}`);
+
+      if (status.isFinalized) {
+        console.log(`Transaction included at blockHash ${status.asFinalized}`);
+
+        // Loop through Vec<EventRecord> to display all events
+	events.forEach(({ phase, event: { data, method, section } }) => {
+	  console.log(`\t' ${phase}: ${section}.${method}:: ${data}`);
+	});
+
+	unsub();
+      }
+
+    });
+    */
   }
 
   private async requestAssets(account: KeyringPair) {
@@ -297,11 +411,7 @@ class Validator {
 async function main() {
   const validator = new Validator();
   await validator.init();
-  if (Boolean(process.env.GENERATE_ACCOUNTS) && validator.getNetworkName().startsWith("TESTNET")) {
-    await validator.createAccounts();
-  } else {
-    await validator.loadAccounts();
-  }
+  await validator.loadAccounts();
   await validator.generateSessionKey();
   await validator.addValidator();
   await validator.setSessionKey();
