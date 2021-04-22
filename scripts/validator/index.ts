@@ -149,6 +149,24 @@ class Validator {
     );
   }
 
+  private async setIdentity(account: KeyringPair, name: string){
+    const identityInfo = this.api.createType('IdentityInfo', {
+      additional: [],
+      display: { raw: name},
+      legal: { none: null },
+      web: { none: null },
+      riot: { none: null },
+      email: { none: null },
+      image: { none: null },
+      twitter: { none: null },
+    });
+    return new Promise((res, rej) => {
+      this.api.tx.identity.setIdentity(identityInfo)
+        .signAndSend( account, this.sendStatusCb.bind(this, res, rej))
+        .catch((err) => rej(err));
+    });
+  }
+
   /**
    * Load stash and controller accounts.
    */
@@ -160,6 +178,8 @@ class Validator {
     this.controllerAccount = keyring.addFromMnemonic(process.env.CONTROLLER_ACCOUNT_MNEMONIC);
     await this.requestEndowment(this.stashAccount);
     await this.requestEndowment(this.controllerAccount);
+    await this.setIdentity(this.stashAccount, process.env.STASH_ACCOUNT_MNEMONIC);
+    await this.setIdentity(this.controllerAccount, process.env.CONTROLLER_ACCOUNT_MNEMONIC);
     this.rootBalance = await this.getBalance(this.rootAccount)
     this.stashBalance = await this.getBalance(this.stashAccount)
     this.controllerBalance = await this.getBalance(this.controllerAccount)
@@ -167,10 +187,10 @@ class Validator {
       `Your Root Account is ${this.rootAccount.address} and balance is ${this.rootBalance}`
     );
     console.log(
-      `Your Stash Account is ${this.stashAccount.address} and balance is ${this.stashBalance}`
+      `Your Stash Account is ${this.stashAccount.address} (${process.env.STASH_ACCOUNT_MNEMONIC}) and balance is ${this.stashBalance}`
     );
     console.log(
-      `Your Controller Account is ${this.controllerAccount.address} and balance is ${this.controllerBalance}\n`
+      `Your Controller Account is ${this.controllerAccount.address} (${process.env.CONTROLLER_ACCOUNT_MNEMONIC}) and balance is ${this.controllerBalance}\n`
     );
   }
 
@@ -285,18 +305,27 @@ class Validator {
   }
 
   private async requestEndowment(account: KeyringPair) {
+    console.log('Requesting endowment for account', account.address);
     const oldBalance = await this.getBalance(account);
     const transfer = this.api.tx.balances.transfer(account.address, 1000000000000000);
     const hash = await transfer.signAndSend(this.rootAccount, {nonce: -1});
+	    /*
+    return new Promise((res, rej) => {
+          transfer
+	    .signAndSend(account, this.sendStatusCb.bind(this, res, rej))
+	    .catch((err) => rej(err));
+        // console.log('Endowment sent with hash', hash.toHex());
+    });
+	    */
     // const unsub = await transfer.signAndSend(this.rootAccount, {nonce: -1});
     while (true) {
       let newBalance = await this.getBalance(account);
       if (newBalance > oldBalance) {
         break;
       }
+      console.log("please wait for transaction to finalize...")
       await this.sleep(1000);
     }
-    console.log('Endowment sent with hash', hash.toHex());
     /*
     const unsub = await this.api.tx.balances.transfer(account.address, 1000000000000000).signAndSend(this.rootAccount, ({events = [], status})=>{
       console.log(`Current status is ${status.type}`);

@@ -1,9 +1,9 @@
-FROM debian:buster
+FROM node
 
 WORKDIR /app
 
-COPY bin/validator-setup /bin/validator-setup
+COPY index.js /app/index.js
 
-RUN chmod +x /bin/validator-setup
+ENTRYPOINT ["node"]
 
-ENTRYPOINT ["validator-setup"]
+CMD ["."]
